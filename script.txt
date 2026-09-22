@@ -1,0 +1,59 @@
+(async function () {
+  const dbName = prompt("IndexedDB database name:", "c3-savegames-54xrl0uia1r");
+  const storeName = prompt("Object store name:", "keyvaluepairs");
+  const key = prompt("Save key/name to edit (exactly as shown in the table):");
+  if (!dbName || !storeName || !key) return console.log("Cancelled.");
+
+  const dbReq = indexedDB.open(dbName);
+  dbReq.onsuccess = () => {
+    const db = dbReq.result;
+    const tx = db.transaction(storeName, "readwrite");
+    const store = tx.objectStore(storeName);
+    const getReq = store.get(key);
+
+    getReq.onsuccess = () => {
+      const raw = getReq.result;
+      if (raw === undefined) return console.log("No record found for key:", key);
+
+      const isString = typeof raw === "string";
+      let data;
+      try {
+        data = isString ? JSON.parse(raw) : raw;
+      } catch (e) {
+        return console.log("Couldn't parse as JSON — raw value:", raw);
+      }
+
+      console.log("Loaded save data (expand to inspect):", data);
+
+      const oldVal = parseFloat(prompt("Current money amount (as shown in-game), to search for:"));
+      const newVal = parseFloat(prompt("New money amount:"));
+      if (isNaN(oldVal) || isNaN(newVal)) return console.log("Cancelled or invalid numbers.");
+
+      const matches = [];
+      (function walk(obj, path) {
+        if (obj && typeof obj === "object") {
+          for (const k in obj) walk(obj[k], path.concat(k));
+        } else if (typeof obj === "number" && Math.abs(obj - oldVal) < 0.01) {
+          matches.push(path.slice());
+        }
+      })(data, []);
+
+      if (matches.length === 0) {
+        return console.log("No exact numeric match found. Expand 'data' above in the console and look for the field manually — money is sometimes stored as a string.", data);
+      }
+
+      console.log(`Found ${matches.length} matching field(s) at:`, matches);
+
+      function setPath(obj, path, value) {
+        let cur = obj;
+        for (let i = 0; i < path.length - 1; i++) cur = cur[path[i]];
+        cur[path[path.length - 1]] = value;
+      }
+      matches.forEach(p => setPath(data, p, newVal));
+
+      const toStore = isString ? JSON.stringify(data) : data;
+      store.put(toStore, key).onsuccess = () => console.log("Save updated — reload/relaunch the game to see it take effect.");
+    };
+  };
+  dbReq.onerror = (e) => console.error("Failed to open database:", e);
+})();
